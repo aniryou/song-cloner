@@ -1,0 +1,23 @@
+# Never commit audio, voice models or engine data: this repository is public.
+/data/
+/outputs/
+/songs/
+/datasets/
+*.pth
+*.index
+*.onnx
+*.wav
+*.mp3
+*.flac
+*.m4a
+*.ogg
+
+# Python
+.venv/
+__pycache__/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+dist/
+build/
+.ipynb_checkpoints/
