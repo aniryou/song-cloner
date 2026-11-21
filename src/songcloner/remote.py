@@ -26,7 +26,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from songcloner import voices
+from songcloner import restore, voices
 from songcloner.convert import is_url, unique_destination
 from songcloner.training import AUDIO_SUFFIXES
 
@@ -338,6 +338,9 @@ def cmd_convert(args: argparse.Namespace) -> int:
     job_args += ["--index-rate", str(args.index_rate), "--format", args.format]
     if args.auto_pitch:
         job_args.append("--auto-pitch")
+    for variant in args.restore or []:
+        restore.parse(variant)  # a typo should not cost a job
+        job_args += ["--restore", variant]
     job = launch(
         api,
         job_args,
@@ -348,22 +351,22 @@ def cmd_convert(args: argparse.Namespace) -> int:
         max_cost=args.max_cost,
         log=print,
     )
-    cover_name: str | None = None
+    cover_names: list[str] = []
 
     def log(line: str) -> None:
-        nonlocal cover_name
         if line.startswith("COVER "):
-            cover_name = line.removeprefix("COVER ").strip()
+            cover_names.append(line.removeprefix("COVER ").strip())
         print(line)
 
     status = _finish(follow(api, job.id, log))
-    if status != 0 or cover_name is None:
+    if status != 0 or not cover_names:
         return status or 1
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
-    destination = unique_destination(output_dir, cover_name)
-    api.download_bucket_files(bucket_id, files=[(f"covers/{cover_name}", str(destination))])
-    print(f"Done: {destination}")
+    for cover_name in cover_names:
+        destination = unique_destination(output_dir, cover_name)
+        api.download_bucket_files(bucket_id, files=[(f"covers/{cover_name}", str(destination))])
+        print(f"Done: {destination}")
     return 0
 
 
@@ -437,6 +440,11 @@ def build_parser() -> argparse.ArgumentParser:
     cover.add_argument("--index-rate", type=float, default=0.3)
     cover.add_argument("--format", default="mp3")
     cover.add_argument("--output-dir", default="outputs")
+    cover.add_argument(
+        "--restore",
+        action="append",
+        help="Backing-track restore steps, e.g. denoise,tone. Repeat to render several variants.",
+    )
     budget(cover, DEFAULT_GPU, 0.5)
     cover.set_defaults(run=cmd_convert)
 
@@ -460,7 +468,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         return args.run(args)
-    except (RemoteError, voices.VoiceError) as error:
+    except (RemoteError, voices.VoiceError, restore.RestoreError) as error:
         print(f"Error: {error}", file=sys.stderr)
         return 1
     except Exception as error:

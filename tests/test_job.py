@@ -71,7 +71,8 @@ def stubs(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> dict:
         calls["convert"].append(
             {"source": source, "voice": voice, "quality": quality, "options": options}
         )
-        result = tmp_path / "work" / "outputs" / f"{Path(source).stem} ({voice} Ver).mp3"
+        suffix = f" [{options['restore']}]" if options.get("restore") else ""
+        result = tmp_path / "work" / "outputs" / f"{Path(source).stem} ({voice} Ver){suffix}.mp3"
         result.parent.mkdir(parents=True, exist_ok=True)
         result.write_bytes(b"mixed-song")
         return result
@@ -292,3 +293,37 @@ def test_without_require_gpu_a_cpu_machine_may_run(
 
 def test_require_gpu_passes_on_a_gpu(bucket: Path) -> None:
     assert job.main(["smoke", "--require-gpu"]) == 0
+
+
+def test_convert_renders_one_cover_per_restore_variant(
+    bucket: Path, stubs: dict, capsys: pytest.CaptureFixture
+) -> None:
+    _put_voice(bucket, "arijit")
+    (bucket / "inbox").mkdir()
+    (bucket / "inbox" / "Old Song.mp3").write_bytes(b"song")
+
+    status = job.main(
+        ["convert", "inbox/Old Song.mp3", "--voice", "arijit",
+         "--restore", "none", "--restore", "denoise,tone", "--restore", "all"]
+    )  # fmt: skip
+
+    assert status == 0
+    assert [call["options"]["restore"] for call in stubs["convert"]] == [
+        "none",
+        "denoise,tone",
+        "all",
+    ]
+    assert sorted(p.name for p in (bucket / "covers").iterdir()) == [
+        "Old Song (arijit Ver) [all].mp3",
+        "Old Song (arijit Ver) [denoise,tone].mp3",
+        "Old Song (arijit Ver) [none].mp3",
+    ]
+    assert capsys.readouterr().out.count("COVER ") == 3
+
+
+def test_convert_without_restore_makes_a_single_plain_cover(bucket: Path, stubs: dict) -> None:
+    _put_voice(bucket, "arijit")
+
+    assert job.main(["convert", "https://youtu.be/xyz", "--voice", "arijit"]) == 0
+
+    assert [call["options"]["restore"] for call in stubs["convert"]] == [""]

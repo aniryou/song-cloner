@@ -152,3 +152,20 @@ def test_convert_song_honours_output_dir(paths, model_files, fake_engine, tmp_pa
     )
 
     assert result.parent == elsewhere
+
+
+def test_convert_song_rejects_a_bad_restore_spec_before_heavy_work(
+    paths, model_files, fake_engine, tmp_path: Path
+) -> None:
+    from songcloner.restore import RestoreError
+
+    voices.add_voice(paths, "singer", list(model_files))
+    song = tmp_path / "track.wav"
+    song.write_bytes(b"audio")
+
+    with pytest.raises(RestoreError, match="Unknown restore step"):
+        convert.convert_song(
+            str(song), "singer", paths=paths, log=lambda _m: None, restore="sparkle"
+        )
+
+    assert fake_engine["separators"] == [] and fake_engine["run_cover"] == []

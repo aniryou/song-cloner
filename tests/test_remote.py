@@ -391,3 +391,41 @@ def test_cpu_jobs_are_not_told_to_require_a_gpu(api: FakeApi) -> None:
     )
 
     assert api.jobs[0]["script_args"] == ["-m", "songcloner.job", "smoke"]
+
+
+def test_convert_command_downloads_every_restore_variant(
+    api: FakeApi, tmp_path: Path, capsys: pytest.CaptureFixture
+) -> None:
+    song = tmp_path / "Old Song.mp3"
+    song.write_bytes(b"audio")
+    api.log_lines = [
+        "COVER Old Song (arijit Ver).mp3\n",
+        "COVER Old Song (arijit Ver) [denoise+tone].mp3\n",
+    ]
+    out = tmp_path / "outputs"
+
+    status = remote.main(
+        ["convert", str(song), "--voice", "arijit", "--output-dir", str(out),
+         "--restore", "none", "--restore", "denoise,tone"]
+    )  # fmt: skip
+
+    assert status == 0
+    args = api.jobs[0]["script_args"]
+    assert [args[i + 1] for i, a in enumerate(args) if a == "--restore"] == ["none", "denoise,tone"]
+    assert sorted(Path(local).name for _remote, local in api.downloads) == [
+        "Old Song (arijit Ver) [denoise+tone].mp3",
+        "Old Song (arijit Ver).mp3",
+    ]
+
+
+def test_convert_command_refuses_a_bad_restore_spec_before_starting_a_job(
+    api: FakeApi, tmp_path: Path, capsys: pytest.CaptureFixture
+) -> None:
+    song = tmp_path / "Old Song.mp3"
+    song.write_bytes(b"audio")
+
+    status = remote.main(["convert", str(song), "--voice", "arijit", "--restore", "sparkle"])
+
+    assert status == 1
+    assert "Unknown restore step 'sparkle'" in capsys.readouterr().err
+    assert api.jobs == []

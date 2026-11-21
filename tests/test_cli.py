@@ -110,6 +110,8 @@ def test_convert_passes_options_through(
             "flac",
             "--quality",
             "standard",
+            "--restore",
+            "tone:3,denoise",
         ],
     )
 
@@ -129,6 +131,7 @@ def test_convert_passes_options_through(
         "inst_gain": 0,
         "backup_gain": 0,
         "output_format": "flac",
+        "restore": "tone:3,denoise",
     }
     assert (tmp_path / "outputs" / "cover.flac").read_bytes() == b"mixed"
 
@@ -151,3 +154,19 @@ def test_train_reports_a_missing_dataset(runner: CliRunner, tmp_path: Path) -> N
 
     assert result.exit_code == 1
     assert "Dataset folder not found" in result.output
+
+
+def test_convert_rejects_a_bad_restore_spec_before_doing_any_work(
+    runner: CliRunner, model_files, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    started: list[str] = []
+    monkeypatch.setattr(engine, "prepare", lambda paths=None: started.append("prepare"))
+    song = tmp_path / "track.wav"
+    song.write_bytes(b"audio")
+    runner.invoke(app, ["voices", "add", "singer", str(model_files[0])])
+
+    result = runner.invoke(app, ["convert", str(song), "-v", "singer", "--restore", "sparkle"])
+
+    assert result.exit_code == 1
+    assert "Unknown restore step 'sparkle'" in result.output
+    assert started == []

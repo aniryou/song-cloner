@@ -67,6 +67,11 @@ woman and the voice is a man's (or the reverse), add `--octaves -1` (or `1`), or
 - `engine.run_cover` composes the engine's own steps (separate, convert, mix) instead of
   calling its `run_pipeline`, so that the vocal separator can be chosen (`--quality`). The
   choice was measured on a track with ground-truth stems; re-measure before changing it.
+- `restore.py` freshens the backing track of an old recording (`--restore`). Its steps are
+  plain numpy/scipy and are tested by measurement on synthetic signals; none of it can be
+  judged by ear here. When the owner converts an old song, render a few combinations
+  (`--restore none --restore denoise,tone --restore all`) and let them pick: do not claim
+  that one sounds better.
 - `paths.py`: engine data lives in `./data` (`SONGCLONER_HOME`), results in `./outputs`
   (`SONGCLONER_OUTPUTS`).
 - The Colab notebook runs `job.py` too, with a Google Drive folder in place of the bucket,
