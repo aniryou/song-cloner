@@ -281,21 +281,25 @@ def run_convert(args: argparse.Namespace, log: Callable[[str], None]) -> int:
         copy_file(remote_song, local_song)
         source = str(local_song)
 
-    result = convert.convert_song(
-        source,
-        name,
-        paths=paths,
-        quality=args.quality,
-        log=log,
-        octaves=args.octaves,
-        semitones=args.semitones,
-        auto_pitch=args.auto_pitch,
-        index_rate=args.index_rate,
-        protect_rate=args.protect,
-        output_format=args.format,
-    )
-    copy_file(result, bucket / "covers" / result.name)
-    log(f"COVER {result.name}")
+    # One cover per restore variant. Separation and voice conversion are cached
+    # after the first, so each further variant only costs a remix.
+    for variant in args.restore or [""]:
+        result = convert.convert_song(
+            source,
+            name,
+            paths=paths,
+            quality=args.quality,
+            log=log,
+            octaves=args.octaves,
+            semitones=args.semitones,
+            auto_pitch=args.auto_pitch,
+            index_rate=args.index_rate,
+            protect_rate=args.protect,
+            output_format=args.format,
+            restore=variant,
+        )
+        copy_file(result, bucket / "covers" / result.name)
+        log(f"COVER {result.name}")
     return 0
 
 
@@ -338,6 +342,11 @@ def build_parser() -> argparse.ArgumentParser:
     cover.add_argument("--index-rate", type=float, default=0.3)
     cover.add_argument("--protect", type=float, default=0.33)
     cover.add_argument("--format", default="mp3")
+    cover.add_argument(
+        "--restore",
+        action="append",
+        help="Backing-track restore steps, e.g. denoise,tone. Repeat to render several variants.",
+    )
     cover.set_defaults(run=run_convert)
     return parser
 

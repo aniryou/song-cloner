@@ -2715,8 +2715,11 @@ dependencies = [
 
 [package.optional-dependencies]
 dev = [
+    { name = "numpy" },
     { name = "pytest" },
     { name = "ruff" },
+    { name = "scipy" },
+    { name = "soundfile" },
 ]
 engine = [
     { name = "ultimate-rvc" },
@@ -2725,9 +2728,12 @@ engine = [
 [package.metadata]
 requires-dist = [
     { name = "huggingface-hub", specifier = ">=0.25" },
+    { name = "numpy", marker = "extra == 'dev'" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8" },
     { name = "requests", specifier = ">=2.31" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.8" },
+    { name = "scipy", marker = "extra == 'dev'" },
+    { name = "soundfile", marker = "extra == 'dev'" },
     { name = "typer", specifier = ">=0.12" },
     { name = "ultimate-rvc", marker = "extra == 'engine'", specifier = "==0.6.0" },
 ]

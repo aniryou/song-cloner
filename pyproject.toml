@@ -14,7 +14,9 @@ dependencies = [
 # The heavy part (PyTorch, separation and RVC models). Kept optional so that
 # linting and unit tests do not need several gigabytes of wheels.
 engine = ["ultimate-rvc==0.6.0"]
-dev = ["pytest>=8", "ruff>=0.8"]
+# numpy, scipy and soundfile come with the engine; they are repeated here so
+# that the audio-processing tests run where the engine is not installed (CI).
+dev = ["pytest>=8", "ruff>=0.8", "numpy", "scipy", "soundfile"]
 
 [project.scripts]
 songcloner = "songcloner.cli:app"

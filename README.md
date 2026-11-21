@@ -70,6 +70,39 @@ Useful options (`uv run songcloner convert --help` lists all):
 
 Set `SONGCLONER_VOICE=myvoice` to stop typing `--voice`.
 
+### Old recordings
+
+The converted vocal is re-synthesised, so it comes out clean whatever the age of the song.
+The backing track does not: on an old recording it stays hissy, narrow and dull. The most
+effective fix is to convert a modern, well-recorded cover of the song instead, since the tool
+keeps whatever backing track it is given. When there is none, `--restore` freshens the old
+one. It cannot replace the instruments; it makes the same recording cleaner and fuller.
+
+| Step | What it does |
+| --- | --- |
+| `denoise` | Lowers steady tape hiss. |
+| `tone` | More bass and treble, a little less of the boxy midrange. |
+| `air` | Adds the top end that old tape never captured. |
+| `widen` | Spreads a mono or narrow recording across left and right. Played on one speaker, the result is unchanged. |
+| `glue` | Gentle compression, for a denser sound. |
+
+```bash
+uv run songcloner convert old-song.mp3 --voice myvoice --restore denoise,tone
+uv run songcloner convert old-song.mp3 --voice myvoice --restore tone:3,air:1
+uv run songcloner convert old-song.mp3 --voice myvoice --restore all
+```
+
+Combine steps with commas; add `:1` for light or `:3` for strong; `all` is every step at
+medium strength (`all:1`, `all:3`). Each combination gets its own file name, such as
+`Old Song (myvoice Ver) [denoise+tone].mp3`, and separation and voice conversion are reused
+between runs, so trying another combination on the same song takes seconds. Which one sounds
+best depends on the recording: compare them by ear.
+
+What was measured: a modern instrumental was aged artificially (mono, no bass or treble,
+boxy mids, hiss) and restored. `all` cut the gap in octave-band balance to the original from
+6.8 dB to 4.0 dB (`all:3`: 2.6 dB), and `denoise` took 10 dB off the hiss without lowering
+the music. That says the steps move in the right direction, not that the result sounds good.
+
 ## Training a voice
 
 Training needs a GPU. On a 4-core CPU one epoch over 6 minutes of audio takes about 3

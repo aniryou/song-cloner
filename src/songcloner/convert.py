@@ -7,7 +7,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from songcloner import engine, voices
+from songcloner import engine, restore, voices
 from songcloner.paths import Paths
 
 
@@ -57,6 +57,7 @@ def convert_song(
     """
     voices.get_voice(paths, voice)  # fail before any heavy work
     engine.vocal_separator(quality)
+    restore.parse(options.get("restore"))
     resolved = resolve_source(source)
     engine.prepare(paths)
     engine.ensure_base_models(log=log)

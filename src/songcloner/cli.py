@@ -9,7 +9,7 @@ from typing import Annotated
 
 import typer
 
-from songcloner import __version__, convert, dataset, engine, training, voices
+from songcloner import __version__, convert, dataset, engine, restore, training, voices
 from songcloner.paths import get_paths
 
 app = typer.Typer(
@@ -25,6 +25,7 @@ USER_ERRORS = (
     convert.ConvertError,
     training.TrainingError,
     dataset.DatasetError,
+    restore.RestoreError,
     engine.EngineNotInstalledError,
     engine.EngineError,
 )
@@ -116,6 +117,14 @@ def convert_command(
         Path | None, typer.Option(help="Where to put the result (default: ./outputs).")
     ] = None,
     quality: QualityOption = engine.DEFAULT_QUALITY,
+    restore_spec: Annotated[
+        str,
+        typer.Option(
+            "--restore",
+            help="Freshen an old backing track: any of denoise,tone,air,widen,glue "
+            "(strength 1-3 after a colon, e.g. tone:3), or 'all'.",
+        ),
+    ] = "",
 ) -> None:
     """Convert a song's lead vocal to VOICE and write the remixed song."""
     try:
@@ -137,6 +146,7 @@ def convert_command(
             inst_gain=inst_gain,
             backup_gain=backing_gain,
             output_format=output_format,
+            restore=restore_spec,
         )
     except USER_ERRORS as error:
         raise _fail(error) from error

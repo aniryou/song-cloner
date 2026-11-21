@@ -14,6 +14,9 @@ from collections.abc import Callable, Sequence
 from pathlib import Path
 
 from songcloner.paths import Paths, engine_env, get_paths
+from songcloner.restore import parse as parse_restore
+from songcloner.restore import restore_file
+from songcloner.restore import tag as restore_tag
 
 INSTALL_HINT = (
     "The conversion engine is not installed. Install it with:\n"
@@ -263,14 +266,18 @@ def run_cover(
     backup_gain: int = 0,
     output_format: str = "mp3",
     output_name: str | None = None,
+    restore: str | None = None,
     log: Callable[[str], None] = print,
 ) -> Path:
     """Run the full cover pipeline and return the path of the mixed song.
 
     ``source`` is a local audio file or a YouTube URL. ``octaves`` shifts only
     the converted vocal; ``semitones`` shifts vocal, instrumental and backing
-    vocals together (a key change).
+    vocals together (a key change). ``restore`` freshens the backing track of
+    an old recording (see :mod:`songcloner.restore`); the combination used is
+    added to the file name, so that variants of one song can be compared.
     """
+    restore_steps = parse_restore(restore)
     prepare()
     from ultimate_rvc.core.generate import song_cover
     from ultimate_rvc.core.generate.common import convert
@@ -292,9 +299,21 @@ def run_cover(
         clean_audio=clean_vocals,
         content_type=RVCContentType.VOCALS,
     )
-    log("Mixing...")
     effected = song_cover.postprocess(converted, song_dir)
-    instrumental = song_cover.pitch_shift(stems["instrumental"], song_dir, semitones)
+    instrumental_stem = stems["instrumental"]
+    if restore_steps:
+        label = restore_tag(restore_steps)
+        # Named after the stem it came from: one song can have several
+        # instrumental stems (one per separation quality).
+        restored = song_dir / f"{instrumental_stem.stem}_restored_{label}.wav"
+        if not restored.exists():
+            log(f"Restoring the backing track ({label})...")
+            restore_file(instrumental_stem, restored, restore_steps)
+        instrumental_stem = restored
+        if output_name is None:
+            output_name = f"{song_cover.get_song_cover_name(effected, song_dir, None)} [{label}]"
+    log("Mixing...")
+    instrumental = song_cover.pitch_shift(instrumental_stem, song_dir, semitones)
     backing = song_cover.pitch_shift(stems["backing"], song_dir, semitones)
     cover = song_cover.mix_song(
         [(effected, main_gain), (instrumental, inst_gain), (backing, backup_gain)],
