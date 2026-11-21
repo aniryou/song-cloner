@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pytest
@@ -8,6 +9,12 @@ from typer.testing import CliRunner
 from songcloner import engine
 from songcloner.cli import app
 from songcloner.paths import HOME_ENV, OUTPUTS_ENV
+
+
+def plain(text: str) -> str:
+    """Strip terminal styling. On GitHub Actions the argument parser colours its
+    error panels, which splits option names such as ``--voice`` across escape codes."""
+    return re.sub(r"\x1b\[[0-9;]*m", "", text)
 
 
 @pytest.fixture
@@ -58,7 +65,7 @@ def test_convert_requires_a_voice(runner: CliRunner, tmp_path: Path) -> None:
     result = runner.invoke(app, ["convert", str(tmp_path / "track.wav")])
 
     assert result.exit_code == 2  # usage error from the argument parser
-    assert "--voice" in result.output
+    assert "--voice" in plain(result.output)
 
 
 def test_convert_passes_options_through(
@@ -66,7 +73,7 @@ def test_convert_passes_options_through(
 ) -> None:
     seen: dict = {}
 
-    def run_cover(source: str, voice: str, **options) -> Path:
+    def run_cover(source: str, voice: str, *, log, **options) -> Path:
         seen.update(source=source, voice=voice, **options)
         cover = tmp_path / "cover.flac"
         cover.write_bytes(b"mixed")
@@ -74,7 +81,7 @@ def test_convert_passes_options_through(
 
     monkeypatch.setattr(engine, "prepare", lambda paths=None: paths)
     monkeypatch.setattr(engine, "ensure_base_models", lambda **_k: None)
-    monkeypatch.setattr(engine, "ensure_separators", lambda **_k: None)
+    monkeypatch.setattr(engine, "ensure_separators", lambda quality, log: None)
     monkeypatch.setattr(engine, "device_summary", lambda: "CPU (test)")
     monkeypatch.setattr(engine, "run_cover", run_cover)
     song = tmp_path / "track.wav"
@@ -101,6 +108,8 @@ def test_convert_passes_options_through(
             "3",
             "--format",
             "flac",
+            "--quality",
+            "standard",
         ],
     )
 
@@ -108,6 +117,7 @@ def test_convert_passes_options_through(
     assert seen == {
         "source": str(song.resolve()),
         "voice": "singer",
+        "quality": "standard",
         "octaves": -1,
         "semitones": 2,
         "auto_pitch": True,

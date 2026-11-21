@@ -9,7 +9,7 @@ from typing import Annotated
 
 import typer
 
-from songcloner import __version__, convert, engine, training, voices
+from songcloner import __version__, convert, dataset, engine, training, voices
 from songcloner.paths import get_paths
 
 app = typer.Typer(
@@ -24,9 +24,18 @@ USER_ERRORS = (
     voices.VoiceError,
     convert.ConvertError,
     training.TrainingError,
+    dataset.DatasetError,
     engine.EngineNotInstalledError,
     engine.EngineError,
 )
+
+
+QualityOption = Annotated[
+    str,
+    typer.Option(
+        help="Vocal separation: 'high' (best, about twice as slow on CPU) or 'standard'.",
+    ),
+]
 
 
 def _fail(error: Exception) -> typer.Exit:
@@ -40,12 +49,13 @@ def setup(
         int | None,
         typer.Option(help="Also fetch the pretrained models for training at this rate (Hz)."),
     ] = None,
+    quality: QualityOption = engine.DEFAULT_QUALITY,
 ) -> None:
-    """Download the base models (about 0.8 GB). Safe to run again."""
+    """Download the base models (about 1.5 GB at high quality). Safe to run again."""
     try:
         engine.prepare()
         engine.ensure_base_models(training_sample_rate=training_sample_rate, log=typer.echo)
-        engine.ensure_separators(log=typer.echo)
+        engine.ensure_separators(quality, log=typer.echo)
     except USER_ERRORS as error:
         raise _fail(error) from error
     typer.echo("Setup complete.")
@@ -105,6 +115,7 @@ def convert_command(
     output_dir: Annotated[
         Path | None, typer.Option(help="Where to put the result (default: ./outputs).")
     ] = None,
+    quality: QualityOption = engine.DEFAULT_QUALITY,
 ) -> None:
     """Convert a song's lead vocal to VOICE and write the remixed song."""
     try:
@@ -112,6 +123,7 @@ def convert_command(
             source,
             voice,
             paths=get_paths(),
+            quality=quality,
             output_dir=output_dir,
             log=typer.echo,
             octaves=octaves,
@@ -134,7 +146,7 @@ def convert_command(
 @app.command("train")
 def train_command(
     name: Annotated[str, typer.Argument(help="Name for the new voice.")],
-    dataset: Annotated[Path, typer.Argument(help="Folder of recordings of one singer.")],
+    recordings: Annotated[Path, typer.Argument(help="Folder of recordings of one singer.")],
     epochs: Annotated[int, typer.Option(min=1, help="Training epochs.")] = 200,
     batch_size: Annotated[
         int, typer.Option(min=1, help="Lower this if the GPU runs out of memory.")
@@ -150,17 +162,19 @@ def train_command(
     force: Annotated[
         bool, typer.Option(help="Replace an existing voice of the same name.")
     ] = False,
+    quality: QualityOption = engine.DEFAULT_QUALITY,
 ) -> None:
     """Train a voice model from recordings you provide (needs a GPU to be practical)."""
     try:
         voice = training.train(
             name,
-            dataset,
+            recordings,
             paths=get_paths(),
             epochs=epochs,
             batch_size=batch_size,
             sample_rate=sample_rate,
             isolate_vocals=isolate_vocals,
+            quality=quality,
             save_interval=save_interval,
             detect_overtraining=detect_overtraining,
             force=force,
@@ -169,6 +183,36 @@ def train_command(
     except USER_ERRORS as error:
         raise _fail(error) from error
     typer.echo(f"Trained voice {voice.name!r}: {voice.model}")
+
+
+@app.command("dataset")
+def dataset_command(
+    name: Annotated[str, typer.Argument(help="Dataset name; written to ./datasets/NAME.")],
+    songs: Annotated[
+        list[str], typer.Argument(help="Song files, folders of songs, or YouTube URLs.")
+    ],
+    quality: QualityOption = engine.DEFAULT_QUALITY,
+) -> None:
+    """Isolate the singer's lead vocal from each song, ready for training."""
+    try:
+        report = dataset.build_dataset(
+            name, songs, paths=get_paths(), quality=quality, log=typer.echo
+        )
+    except USER_ERRORS as error:
+        raise _fail(error) from error
+    typer.echo("")
+    for clip in report.clips:
+        typer.echo(f"{clip.sung_seconds / 60:5.1f} min  {clip.path.name}")
+    if report.skipped:
+        typer.echo(f"{len(report.skipped)} song(s) were already in the dataset.")
+    typer.echo(f"Dataset: {report.directory}")
+    typer.echo(report.verdict())
+    typer.echo("Listen to a few clips and delete any that are not the singer alone, then run:")
+    typer.echo(f"  songcloner train <voice-name> {report.directory}")
+    if report.failures:
+        for source, reason in report.failures:
+            typer.secho(f"Failed: {source}: {reason}", fg=typer.colors.RED, err=True)
+        raise typer.Exit(code=1)
 
 
 @voices_app.command("list")

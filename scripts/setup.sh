@@ -2,7 +2,7 @@
 # Prepare a machine for song-cloner: audio tools, Python environment, base models.
 # Safe to run again; each step skips work that is already done.
 #
-#   bash scripts/setup.sh              conversion only (about 1 GB of models)
+#   bash scripts/setup.sh              conversion only (about 1.5 GB of models)
 #   bash scripts/setup.sh --training   also fetch the pretrained models for training
 set -euo pipefail
 
