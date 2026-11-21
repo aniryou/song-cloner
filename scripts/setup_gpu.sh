@@ -40,11 +40,15 @@ if [ -z "$ENGINE_VERSION" ]; then
 fi
 
 uv venv --quiet --allow-existing --python 3.12 "$ENV_DIR"
-# unsafe-best-match: take torch from PyTorch's index and everything else from
-# PyPI. Without it uv would insist on PyTorch's index for every package that
-# index happens to mirror, and the engine's exact pins are not all there.
+# PyPI first, PyTorch's index as the fallback: torch's "+cu128" build exists only
+# on PyTorch's index, and everything else (including the NVIDIA libraries, which
+# PyTorch's index would fetch from a third host) comes from PyPI.
+# unsafe-best-match lets uv look at both indexes for every package; without it
+# uv stops at the first index that has a package at all, and PyPI's plain torch
+# does not satisfy the "+cu128" pin.
 uv pip install --quiet --python "$ENV_DIR/bin/python" \
-  --extra-index-url "$TORCH_INDEX" --index-strategy unsafe-best-match \
+  --index https://pypi.org/simple --default-index "$TORCH_INDEX" \
+  --index-strategy unsafe-best-match \
   "ultimate-rvc[cuda]==$ENGINE_VERSION" -e "$ROOT[engine]"
 
 "$ENV_DIR/bin/songcloner" doctor
