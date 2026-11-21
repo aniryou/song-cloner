@@ -70,8 +70,8 @@ woman and the voice is a man's (or the reverse), add `--octaves -1` (or `1`), or
 - `paths.py`: engine data lives in `./data` (`SONGCLONER_HOME`), results in `./outputs`
   (`SONGCLONER_OUTPUTS`).
 - The Colab notebook runs `job.py` too, with a Google Drive folder in place of the bucket,
-  inside an environment built by `scripts/setup_gpu.sh`. Its `CODE_VERSION` setting names the
-  branch it installs: keep it pointing at a branch that exists (`main` once merged).
+  inside an environment built by `scripts/setup_gpu.sh`. It installs the branch named by its
+  `CODE_VERSION` setting, which is `main`: a change only reaches Colab once it is merged.
 - `remote.py` launches Hugging Face Jobs and `job.py` is what runs inside one. `remote.py`
   needs `huggingface_hub` 2.4+, which the engine's pins forbid in the project environment,
   so `scripts/remote` runs it in its own environment; `job.py` uses only the bucket
