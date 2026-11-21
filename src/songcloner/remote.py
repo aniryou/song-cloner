@@ -208,6 +208,10 @@ def launch(
     """Start a job running ``python -m songcloner.job <job_args>``; return its JobInfo."""
     cost = check_budget(flavor, hours, max_cost)
     hub = _hub()
+    if not flavor.startswith("cpu"):
+        # Paying for a GPU that the job then cannot use is the expensive failure:
+        # make the job stop at once instead of working on the CPU for hours.
+        job_args = [*job_args, "--require-gpu"]
     with _empty_working_directory():
         job = api.run_uv_job(
             "python",

@@ -228,7 +228,9 @@ def test_launch_sends_a_bounded_job_that_mounts_the_bucket(
 
     job = api.jobs[0]
     assert job["script"] == "python"
-    assert job["script_args"] == ["-m", "songcloner.job", "train", "arijit", "--epochs", "300"]
+    assert job["script_args"] == [
+        "-m", "songcloner.job", "train", "arijit", "--epochs", "300", "--require-gpu",
+    ]  # fmt: skip
     assert job["dependencies"] == [CODE.dependency]
     assert job["flavor"] == "t4-small"
     assert job["timeout"] == 4 * 3600
@@ -306,7 +308,7 @@ def test_train_command_uploads_songs_then_starts_the_job(
     assert api.uploads == [("Tum Hi Ho.mp3", "songs/arijit/Tum Hi Ho.mp3")]
     assert api.jobs[0]["script_args"][2:] == [
         "train", "arijit", "--quality", "high", "--epochs", "250", "--batch-size", "8",
-        "--url", "https://youtu.be/abc",
+        "--url", "https://youtu.be/abc", "--require-gpu",
     ]  # fmt: skip
     assert api.jobs[0]["flavor"] == "t4-small"
     assert "at most $1.20" in capsys.readouterr().out
@@ -374,3 +376,18 @@ def test_convert_command_passes_urls_through_without_uploading(
 
     assert api.uploads == []
     assert api.jobs[0]["script_args"][3] == "https://youtu.be/xyz"
+
+
+def test_cpu_jobs_are_not_told_to_require_a_gpu(api: FakeApi) -> None:
+    remote.launch(
+        api,
+        ["smoke"],
+        code=CODE,
+        bucket_id="owner/song-cloner",
+        flavor="cpu-basic",
+        hours=0.5,
+        max_cost=2.0,
+        log=lambda _m: None,
+    )
+
+    assert api.jobs[0]["script_args"] == ["-m", "songcloner.job", "smoke"]

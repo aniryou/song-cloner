@@ -265,5 +265,30 @@ def test_job_refuses_to_run_without_the_bucket(
     monkeypatch.setenv(job.BUCKET_ENV, str(tmp_path / "not-mounted"))
     monkeypatch.setattr(job, "install_system_tools", lambda log: None)
 
-    with pytest.raises(SystemExit, match="not mounted"):
+    with pytest.raises(SystemExit, match="Storage folder not found"):
         job.main(["smoke"])
+
+
+def test_require_gpu_stops_before_any_work_when_there_is_none(
+    bucket: Path, stubs: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(engine, "device_summary", lambda: "CPU (96 cores)")
+    _put_songs(bucket, "arijit", ["A.mp3", "B.mp3"])
+
+    # A TPU runtime on Colab looks exactly like this: plenty of CPU, no GPU.
+    with pytest.raises(SystemExit, match="(?s)No GPU found.*T4 GPU.*TPU does not work"):
+        job.main(["train", "arijit", "--require-gpu"])
+
+    assert stubs["dataset"] == [] and stubs["train"] == []
+
+
+def test_without_require_gpu_a_cpu_machine_may_run(
+    bucket: Path, stubs: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(engine, "device_summary", lambda: "CPU (4 cores)")
+
+    assert job.main(["smoke"]) == 0
+
+
+def test_require_gpu_passes_on_a_gpu(bucket: Path) -> None:
+    assert job.main(["smoke", "--require-gpu"]) == 0

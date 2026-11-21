@@ -48,8 +48,8 @@ woman and the voice is a man's (or the reverse), add `--octaves -1` (or `1`), or
 - This repository is public. Never commit songs, datasets, voice models or converted audio.
   `.gitignore` covers `data/`, `outputs/`, `songs/`, `datasets/` and audio/model extensions;
   keep new working folders inside those.
-- Voices come only from the owner: trained with `notebooks/train_voice_colab.ipynb` or
-  `songcloner train`, or files the owner hands over. Do not download third-party voice models.
+- Voices come only from the owner: trained with `notebooks/song_cloner_colab.ipynb`,
+  `scripts/remote train` or `songcloner train`, or files the owner hands over. Do not download third-party voice models.
   A `.pth` file is a pickle and runs code when loaded, and the engine's bundled sample
   celebrity voices are switched off on purpose (`engine.prepare` writes the marker that
   prevents their download).
@@ -69,6 +69,9 @@ woman and the voice is a man's (or the reverse), add `--octaves -1` (or `1`), or
   choice was measured on a track with ground-truth stems; re-measure before changing it.
 - `paths.py`: engine data lives in `./data` (`SONGCLONER_HOME`), results in `./outputs`
   (`SONGCLONER_OUTPUTS`).
+- The Colab notebook runs `job.py` too, with a Google Drive folder in place of the bucket,
+  inside an environment built by `scripts/setup_gpu.sh`. Its `CODE_VERSION` setting names the
+  branch it installs: keep it pointing at a branch that exists (`main` once merged).
 - `remote.py` launches Hugging Face Jobs and `job.py` is what runs inside one. `remote.py`
   needs `huggingface_hub` 2.4+, which the engine's pins forbid in the project environment,
   so `scripts/remote` runs it in its own environment; `job.py` uses only the bucket

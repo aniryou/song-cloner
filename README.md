@@ -75,16 +75,23 @@ Set `SONGCLONER_VOICE=myvoice` to stop typing `--voice`.
 Training needs a GPU. On a 4-core CPU one epoch over 6 minutes of audio takes about 3
 minutes, and a usable model needs a few hundred epochs.
 
-**On Google Colab (free GPU):** open `notebooks/train_voice_colab.ipynb` in Colab, point it
-at a Google Drive folder of recordings and run the cells. It saves the model to your Drive.
+**On Google Colab (free GPU):** open
+[`notebooks/song_cloner_colab.ipynb`](https://colab.research.google.com/github/aniryou/song-cloner/blob/main/notebooks/song_cloner_colab.ipynb)
+in Colab, choose the **T4 GPU** runtime (a TPU does not work) and run the cells in order. It
+keeps everything in a `song-cloner` folder on your Google Drive: you put training songs in
+`songs/<voice>/`, it isolates the vocals, trains the voice and converts songs you drop into
+`inbox/`. Progress is saved to Drive as it goes, so a disconnected session can be continued.
 
 **On your own GPU machine:**
 
 ```bash
-bash scripts/setup.sh --training
-uv run songcloner dataset myvoice path/to/songs      # files, folders or YouTube URLs
-uv run songcloner train myvoice datasets/myvoice
+bash scripts/setup_gpu.sh                            # installs into .venv-gpu
+.venv-gpu/bin/songcloner dataset myvoice path/to/songs      # files, folders or YouTube URLs
+.venv-gpu/bin/songcloner train myvoice datasets/myvoice
 ```
+
+`setup_gpu.sh` installs the PyTorch build for NVIDIA GPUs that the engine's authors use;
+`setup.sh` installs the default build, which is the right one for a machine without a GPU.
 
 The voice can only be as good as what it learns from, so the dataset is its own step:
 

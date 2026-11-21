@@ -86,17 +86,31 @@ def install_system_tools(log: Callable[[str], None]) -> None:
     )
 
 
-def start(log: Callable[[str], None]) -> tuple[Path, Paths]:
-    """Common start-up: tools, working directory, engine. Returns (bucket, paths)."""
+NO_GPU_MESSAGE = (
+    "No GPU found: this machine would run on {device}, where training takes days.\n"
+    "On Google Colab choose Runtime > Change runtime type > T4 GPU (a TPU does not work: "
+    "this runs on PyTorch with NVIDIA GPUs), then run the notebook again from the top."
+)
+
+
+def start(log: Callable[[str], None], require_gpu: bool = False) -> tuple[Path, Paths]:
+    """Common start-up: tools, working directory, engine. Returns (bucket, paths).
+
+    With ``require_gpu`` the job stops here when PyTorch cannot see a GPU,
+    before any slow or paid-for work begins.
+    """
     bucket = bucket_dir()
     if not bucket.is_dir():
-        raise SystemExit(f"Storage bucket is not mounted at {bucket}.")
+        raise SystemExit(f"Storage folder not found at {bucket}.")
     install_system_tools(log)
     work_dir().mkdir(parents=True, exist_ok=True)
     os.chdir(work_dir())
     paths = work_paths()
     engine.prepare(paths)
-    log(f"Running on {engine.device_summary()}")
+    device = engine.device_summary()
+    if require_gpu and not device.startswith("GPU"):
+        raise SystemExit(NO_GPU_MESSAGE.format(device=device))
+    log(f"Running on {device}")
     return bucket, paths
 
 
@@ -149,9 +163,9 @@ class BestModelMirror:
             print(f"Could not mirror the model: {error}", flush=True)
 
 
-def run_smoke(_args: argparse.Namespace, log: Callable[[str], None]) -> int:
+def run_smoke(args: argparse.Namespace, log: Callable[[str], None]) -> int:
     """Check that the job can see a GPU and write to the bucket."""
-    bucket, _paths = start(log)
+    bucket, _paths = start(log, args.require_gpu)
     marker = bucket / "reports" / "smoke.txt"
     marker.parent.mkdir(parents=True, exist_ok=True)
     marker.write_text(f"{engine.device_summary()}\n")
@@ -163,7 +177,7 @@ def run_smoke(_args: argparse.Namespace, log: Callable[[str], None]) -> int:
 def run_train(args: argparse.Namespace, log: Callable[[str], None]) -> int:
     """Build the dataset from the owner's songs, then train the voice."""
     name = voices.validate_name(args.voice)
-    bucket, paths = start(log)
+    bucket, paths = start(log, args.require_gpu)
     datasets_dir = work_dir() / "datasets"
     local_dataset = datasets_dir / name
     bucket_dataset = bucket / "datasets" / name
@@ -239,7 +253,7 @@ def run_train(args: argparse.Namespace, log: Callable[[str], None]) -> int:
 def run_convert(args: argparse.Namespace, log: Callable[[str], None]) -> int:
     """Convert one song with a voice stored in the bucket."""
     name = voices.validate_name(args.voice)
-    bucket, paths = start(log)
+    bucket, paths = start(log, args.require_gpu)
     voice_dir = bucket / "voices" / name
     files = (
         sorted(p for p in voice_dir.iterdir() if p.suffix in {".pth", ".index"})
@@ -289,9 +303,17 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="python -m songcloner.job", description=__doc__)
     actions = parser.add_subparsers(dest="action", required=True)
 
-    actions.add_parser("smoke", help="Check the GPU and the bucket.").set_defaults(run=run_smoke)
+    common = argparse.ArgumentParser(add_help=False)
+    common.add_argument(
+        "--require-gpu", action="store_true", help="Stop at once if no GPU is available."
+    )
 
-    train = actions.add_parser("train", help="Build the dataset and train a voice.")
+    smoke = actions.add_parser("smoke", parents=[common], help="Check the GPU and the bucket.")
+    smoke.set_defaults(run=run_smoke)
+
+    train = actions.add_parser(
+        "train", parents=[common], help="Build the dataset and train a voice."
+    )
     train.add_argument("voice")
     train.add_argument("--url", action="append", help="A song URL; repeat for more.")
     train.add_argument("--quality", default=engine.DEFAULT_QUALITY)
@@ -304,7 +326,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     train.set_defaults(run=run_train)
 
-    cover = actions.add_parser("convert", help="Convert a song with a trained voice.")
+    cover = actions.add_parser(
+        "convert", parents=[common], help="Convert a song with a trained voice."
+    )
     cover.add_argument("song", help="A path inside the bucket (inbox/...) or a URL.")
     cover.add_argument("--voice", required=True)
     cover.add_argument("--quality", default=engine.DEFAULT_QUALITY)
