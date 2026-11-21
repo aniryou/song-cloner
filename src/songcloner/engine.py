@@ -37,13 +37,19 @@ _prepared_for: Paths | None = None
 
 
 def prepare(paths: Paths | None = None) -> Paths:
-    """Point the engine at our directories. Call before anything else in this module."""
+    """Point the engine at our directories. Call before anything else in this module.
+
+    The first call decides the directories (``paths``, or the defaults for the
+    current directory). Later calls without ``paths`` just return that choice,
+    whatever the current directory has become since; asking for different
+    directories later is an error, because the engine cannot be re-pointed.
+    """
     global _prepared_for
-    paths = paths or get_paths()
     if _prepared_for is not None:
-        if _prepared_for != paths:
+        if paths is not None and paths != _prepared_for:
             raise EngineError("The engine was already prepared with different directories.")
-        return paths
+        return _prepared_for
+    paths = paths or get_paths()
     if "ultimate_rvc" in sys.modules:
         raise EngineError("ultimate_rvc was imported before songcloner.engine.prepare().")
 
@@ -320,16 +326,13 @@ def isolate_lead_vocal(
 _SUNG_FLOOR_DB = -45.0
 
 
-def export_vocal(vocal: Path, destination: Path) -> tuple[float, float]:
-    """Save ``vocal`` as FLAC; return its length and how much of it is singing, in seconds."""
+def measure_singing(vocal: Path) -> tuple[float, float]:
+    """Return a vocal clip's length and how much of it is singing, in seconds."""
     prepare()
     import numpy as np
     import soundfile as sf
 
     audio, sample_rate = sf.read(str(vocal), always_2d=True)
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    sf.write(str(destination), audio, sample_rate, format="FLAC")
-
     mono = audio.mean(axis=1)
     frame = max(1, int(sample_rate * 0.05))
     count = len(mono) // frame
@@ -338,6 +341,17 @@ def export_vocal(vocal: Path, destination: Path) -> tuple[float, float]:
     rms = np.sqrt((mono[: count * frame].reshape(count, frame) ** 2).mean(axis=1))
     threshold = max(10 ** (_SUNG_FLOOR_DB / 20), 0.1 * float(np.percentile(rms, 95)))
     return len(mono) / sample_rate, float((rms > threshold).sum() * frame / sample_rate)
+
+
+def export_vocal(vocal: Path, destination: Path) -> tuple[float, float]:
+    """Save ``vocal`` as FLAC; return its length and how much of it is singing, in seconds."""
+    prepare()
+    import soundfile as sf
+
+    audio, sample_rate = sf.read(str(vocal), always_2d=True)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    sf.write(str(destination), audio, sample_rate, format="FLAC")
+    return measure_singing(destination)
 
 
 def train_voice(

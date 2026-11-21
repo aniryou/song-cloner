@@ -21,6 +21,24 @@ published or shared.
    it in the background and tell the owner how long to expect.
 5. Send the owner the file written to `outputs/`.
 
+## Rented GPUs (`scripts/remote`)
+
+When the environment has a huggingface.co credential, convert and train on Hugging Face's
+GPUs instead of this machine's CPU: `scripts/remote convert <song> --voice <name>` takes
+minutes and costs cents; `scripts/remote train <name> <songs...>` builds the dataset and
+trains. Results live in the owner's private bucket `<user>/song-cloner`.
+
+- The owner asked to keep the cost low. Use the default hardware (`t4-small`) and the default
+  `--max-cost`; do not raise either, or pick pricier hardware, without asking. Say what a job
+  can cost at most before starting it (the command prints it).
+- For training, run `--dataset-only` first and read `reports/train-<name>.json`
+  (`scripts/remote fetch reports/`) before paying for the training run.
+- A job runs the commit that is checked out here, downloaded from GitHub: commit and push
+  first. `scripts/remote` refuses otherwise.
+- Never leave a job running unattended without a reason: check `scripts/remote status <id>`,
+  and `scripts/remote cancel <id>` anything stuck.
+- No token is passed into jobs. They read and write the bucket as a mounted directory.
+
 Pitch: the converted vocal keeps the original singer's notes. When the original is sung by a
 woman and the voice is a man's (or the reverse), add `--octaves -1` (or `1`), or try
 `--auto-pitch`. `--semitones N` changes the key of the whole song instead.
@@ -51,6 +69,10 @@ woman and the voice is a man's (or the reverse), add `--octaves -1` (or `1`), or
   choice was measured on a track with ground-truth stems; re-measure before changing it.
 - `paths.py`: engine data lives in `./data` (`SONGCLONER_HOME`), results in `./outputs`
   (`SONGCLONER_OUTPUTS`).
+- `remote.py` launches Hugging Face Jobs and `job.py` is what runs inside one. `remote.py`
+  needs `huggingface_hub` 2.4+, which the engine's pins forbid in the project environment,
+  so `scripts/remote` runs it in its own environment; `job.py` uses only the bucket
+  directory, never the Hub API.
 
 ## Checks
 

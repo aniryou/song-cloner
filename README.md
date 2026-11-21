@@ -97,6 +97,36 @@ The voice can only be as good as what it learns from, so the dataset is its own 
 - If you already have clean solo vocals, skip `dataset` and point `train` at their folder.
 - `--epochs` defaults to 200. Training stops early when the model stops improving.
 
+## Renting a GPU
+
+`scripts/remote` runs the slow parts on Hugging Face's GPUs instead of your machine. It
+starts a [Hugging Face Job](https://huggingface.co/docs/hub/jobs) that installs this
+project, does the work and writes the result to a private storage bucket in your account
+(`<you>/song-cloner`), which holds your songs, isolated vocals, voices and covers.
+
+You need a Hugging Face account with prepaid credit and an access token of type Write
+(`hf auth login`, or the `HF_TOKEN` environment variable).
+
+```bash
+scripts/remote smoke                                    # cheap check that jobs work
+scripts/remote train myvoice path/to/songs --dataset-only   # isolate vocals, report minutes
+scripts/remote train myvoice                            # train on what is in the bucket
+scripts/remote convert path/to/song.mp3 --voice myvoice # result lands in outputs/
+scripts/remote logs JOB    scripts/remote status JOB    scripts/remote cancel JOB
+```
+
+`train` accepts files, folders and URLs, uploads the files to the bucket and keeps the
+isolated vocals there, so later runs only process new songs.
+
+Keeping the cost down:
+
+- Jobs default to the cheapest GPU (`t4-small`, $0.40 an hour) and are billed by the minute.
+- Every job has a hard time limit (`--hours`). A job whose time limit could cost more than
+  `--max-cost` (default $2) is refused before anything is uploaded or started.
+- While training, the best model so far is copied to the bucket every two minutes, so a job
+  that hits its time limit still leaves a usable voice.
+- `train` refuses to start training on less than five minutes of singing.
+
 ## Keeping a voice for cloud sessions
 
 Machines that start empty each time (such as Claude cloud sessions) need to download the
@@ -121,6 +151,7 @@ uv run songcloner voices pull myvoice --repo your-name/song-cloner-voices   # on
 | `songcloner dataset NAME SONGS...` | Isolate the singer's vocal from songs, for training. |
 | `songcloner train NAME FOLDER` | Train a voice from recordings. |
 | `songcloner voices list / add / remove / pull / push` | Manage voice models. |
+| `scripts/remote smoke / train / convert / logs / status / cancel / fetch` | The same work on a rented GPU. |
 
 Files live in `data/` (engine data, voices), `datasets/` (training vocals) and `outputs/`
 (results), all relative to the current directory. `SONGCLONER_HOME` and `SONGCLONER_OUTPUTS` override them.

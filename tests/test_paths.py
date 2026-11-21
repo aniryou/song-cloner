@@ -46,3 +46,26 @@ def test_engine_env_points_the_engine_at_our_directories(paths) -> None:
         "URVC_CONFIG_DIR",
         "URVC_LOGS_DIR",
     }
+
+
+def test_engine_prepare_keeps_the_first_choice_of_directories(
+    paths, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from songcloner import engine
+    from songcloner.paths import Paths
+
+    monkeypatch.setattr(engine, "_prepared_for", None)
+    monkeypatch.setattr(engine, "_require_engine", lambda: None)
+    monkeypatch.setattr(engine, "_use_system_sox", lambda: None)
+    # prepare() exports these; registering them first makes pytest restore them.
+    for name in [*engine_env(paths), "URVC_NO_LOGGING"]:
+        monkeypatch.setenv(name, "restored-after-test")
+
+    assert engine.prepare(paths) == paths
+    # A job changes directory after preparing. Internal callers pass no paths
+    # and must get the prepared ones, not defaults for the new directory.
+    monkeypatch.chdir(tmp_path)
+    assert engine.prepare() == paths
+    assert engine.prepare(paths) == paths
+    with pytest.raises(engine.EngineError, match="different directories"):
+        engine.prepare(Paths(home=tmp_path / "elsewhere", outputs=tmp_path / "out"))

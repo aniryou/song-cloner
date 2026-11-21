@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# Run training and conversion on rented Hugging Face GPUs.
+#
+#   scripts/remote smoke
+#   scripts/remote train VOICE SONGS...      (files, folders or URLs)
+#   scripts/remote convert SONG --voice VOICE
+#   scripts/remote --help
+#
+# The Hugging Face client these commands need is newer than the one the
+# conversion engine allows, so they run in their own small environment instead
+# of the project's.
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+if ! command -v uv >/dev/null 2>&1; then
+  export PATH="$HOME/.local/bin:$PATH"
+fi
+exec uv run --quiet --no-project --python 3.12 \
+  --with-editable "$ROOT" --with "huggingface_hub>=2.4" \
+  python -m songcloner.remote --repo "$ROOT" "$@"
