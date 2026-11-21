@@ -157,13 +157,43 @@ def ensure_base_models(
             _download(f"{url_base}/{folder}{name}", destination)
 
 
-def ensure_separators(log: Callable[[str], None] = print) -> None:
-    """Download the vocal-separation models (about 180 MB), if missing."""
-    prepare()
+# Models for the first and most audible separation step: vocals from music.
+# "high" was measured against "standard" on a MUSDB18 track with ground-truth
+# stems: about 1 dB better on both the vocal and the instrumental (less of the
+# original singer left in the backing track), at about twice the CPU time.
+VOCAL_SEPARATORS = {
+    "standard": "UVR-MDX-NET-Voc_FT.onnx",
+    "high": "model_bs_roformer_ep_317_sdr_12.9755.ckpt",
+}
+DEFAULT_QUALITY = "high"
+
+
+def vocal_separator(quality: str) -> str:
+    try:
+        return VOCAL_SEPARATORS[quality]
+    except KeyError:
+        choices = ", ".join(sorted(VOCAL_SEPARATORS))
+        raise EngineError(f"Unknown quality {quality!r}; choose one of: {choices}.") from None
+
+
+def ensure_separators(quality: str = DEFAULT_QUALITY, log: Callable[[str], None] = print) -> None:
+    """Download the vocal-separation models for ``quality``, if missing.
+
+    The three models every quality level uses total about 180 MB; the "high"
+    vocal separator adds about 640 MB.
+    """
+    model = vocal_separator(quality)
+    paths = prepare()
     from ultimate_rvc.core.generate.song_cover import initialize_audio_separator
 
     log("Checking vocal-separation models...")
     initialize_audio_separator()
+    model_dir = paths.models / "audio_separator"
+    if not (model_dir / model).is_file():
+        from audio_separator.separator import Separator
+
+        log(f"Downloading {model}...")
+        Separator(model_file_dir=str(model_dir), log_level=40).download_model_files(model)
 
 
 def device_summary() -> str:
@@ -178,10 +208,43 @@ def device_summary() -> str:
     return f"CPU ({os.cpu_count()} cores)"
 
 
+def _split_song(source: str, quality: str, log: Callable[[str], None]) -> dict[str, Path]:
+    """Fetch a song and split it into instrumental, backing vocals and dry lead vocal.
+
+    Mirrors the first half of the engine's own ``run_pipeline``, with the vocal
+    separator chosen by ``quality``. The engine caches every stem in the song's
+    directory, so repeating a call for the same song is cheap.
+    """
+    from ultimate_rvc.core.generate import song_cover
+    from ultimate_rvc.typing_extra import SegmentSize, SeparationModel
+
+    model = vocal_separator(quality)
+    log("Retrieving song...")
+    song, song_dir = song_cover.retrieve_song(source)
+    log(f"Separating vocals from music ({model})...")
+    vocals, instrumental = song_cover.separate_audio(song, song_dir, model, SegmentSize.SEG_512)
+    log("Separating lead vocal from backing vocals...")
+    backing, lead = song_cover.separate_audio(
+        vocals, song_dir, SeparationModel.UVR_MDX_NET_KARA_2, SegmentSize.SEG_512
+    )
+    log("Removing reverb from the lead vocal...")
+    _reverb, dry_lead = song_cover.separate_audio(
+        lead, song_dir, SeparationModel.REVERB_HQ_BY_FOXJOY, SegmentSize.SEG_256
+    )
+    return {
+        "song": Path(song),
+        "song_dir": Path(song_dir),
+        "instrumental": Path(instrumental),
+        "backing": Path(backing),
+        "lead": Path(dry_lead),
+    }
+
+
 def run_cover(
     source: str,
     voice: str,
     *,
+    quality: str = DEFAULT_QUALITY,
     octaves: int = 0,
     semitones: int = 0,
     auto_pitch: bool = False,
@@ -194,6 +257,7 @@ def run_cover(
     backup_gain: int = 0,
     output_format: str = "mp3",
     output_name: str | None = None,
+    log: Callable[[str], None] = print,
 ) -> Path:
     """Run the full cover pipeline and return the path of the mixed song.
 
@@ -202,11 +266,16 @@ def run_cover(
     vocals together (a key change).
     """
     prepare()
-    from ultimate_rvc.core.generate.song_cover import run_pipeline
-    from ultimate_rvc.typing_extra import AudioExt, F0Method
+    from ultimate_rvc.core.generate import song_cover
+    from ultimate_rvc.core.generate.common import convert
+    from ultimate_rvc.typing_extra import AudioExt, F0Method, RVCContentType
 
-    result = run_pipeline(
-        source=source,
+    stems = _split_song(source, quality, log)
+    song_dir = stems["song_dir"]
+    log("Converting the lead vocal...")
+    converted = convert(
+        audio_track=stems["lead"],
+        directory=song_dir,
         model_name=voice,
         n_octaves=octaves,
         n_semitones=semitones,
@@ -214,33 +283,61 @@ def run_cover(
         index_rate=index_rate,
         protect_rate=protect_rate,
         proposed_pitch=auto_pitch,
-        clean_vocals=clean_vocals,
-        main_gain=main_gain,
-        inst_gain=inst_gain,
-        backup_gain=backup_gain,
-        output_format=AudioExt(output_format),
-        output_name=output_name,
+        clean_audio=clean_vocals,
+        content_type=RVCContentType.VOCALS,
     )
-    return Path(result[0])
+    log("Mixing...")
+    effected = song_cover.postprocess(converted, song_dir)
+    instrumental = song_cover.pitch_shift(stems["instrumental"], song_dir, semitones)
+    backing = song_cover.pitch_shift(stems["backing"], song_dir, semitones)
+    cover = song_cover.mix_song(
+        [(effected, main_gain), (instrumental, inst_gain), (backing, backup_gain)],
+        song_dir,
+        44100,
+        AudioExt(output_format),
+        output_name,
+    )
+    return Path(cover)
 
 
-def isolate_lead_vocal(audio_file: Path, work_dir: Path) -> Path:
-    """Strip instruments, backing vocals and reverb from a song; return the lead vocal."""
+def isolate_lead_vocal(
+    source: str, quality: str = DEFAULT_QUALITY, log: Callable[[str], None] = print
+) -> tuple[Path, str]:
+    """Strip music, backing vocals and reverb from a song.
+
+    ``source`` is a local audio file or a YouTube URL. Returns the dry lead
+    vocal and the song's title (its file name without the extension).
+    """
     prepare()
-    from ultimate_rvc.core.generate.song_cover import separate_audio
-    from ultimate_rvc.typing_extra import SegmentSize, SeparationModel
+    stems = _split_song(source, quality, log)
+    # The engine stores the original as "00_<title>.wav".
+    return stems["lead"], stems["song"].stem.removeprefix("00_")
 
-    work_dir.mkdir(parents=True, exist_ok=True)
-    vocals, _instrumentals = separate_audio(
-        audio_file, work_dir, SeparationModel.UVR_MDX_NET_VOC_FT, SegmentSize.SEG_512
-    )
-    _backing, lead = separate_audio(
-        vocals, work_dir, SeparationModel.UVR_MDX_NET_KARA_2, SegmentSize.SEG_512
-    )
-    _reverb, dry_lead = separate_audio(
-        lead, work_dir, SeparationModel.REVERB_HQ_BY_FOXJOY, SegmentSize.SEG_256
-    )
-    return Path(dry_lead)
+
+# A frame counts as singing when it is louder than this, relative to full scale,
+# and also louder than a tenth of the clip's typical loud level. Isolated vocals
+# are never perfectly silent between phrases, so an absolute floor is not enough.
+_SUNG_FLOOR_DB = -45.0
+
+
+def export_vocal(vocal: Path, destination: Path) -> tuple[float, float]:
+    """Save ``vocal`` as FLAC; return its length and how much of it is singing, in seconds."""
+    prepare()
+    import numpy as np
+    import soundfile as sf
+
+    audio, sample_rate = sf.read(str(vocal), always_2d=True)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    sf.write(str(destination), audio, sample_rate, format="FLAC")
+
+    mono = audio.mean(axis=1)
+    frame = max(1, int(sample_rate * 0.05))
+    count = len(mono) // frame
+    if count == 0:
+        return len(mono) / sample_rate, 0.0
+    rms = np.sqrt((mono[: count * frame].reshape(count, frame) ** 2).mean(axis=1))
+    threshold = max(10 ** (_SUNG_FLOOR_DB / 20), 0.1 * float(np.percentile(rms, 95)))
+    return len(mono) / sample_rate, float((rms > threshold).sum() * frame / sample_rate)
 
 
 def train_voice(

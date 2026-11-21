@@ -45,9 +45,9 @@ def test_unique_destination_never_overwrites(tmp_path: Path) -> None:
 @pytest.fixture
 def fake_engine(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> dict:
     """Replace the engine with a stub that writes a small 'cover' file."""
-    calls: dict = {"run_cover": []}
+    calls: dict = {"run_cover": [], "separators": []}
 
-    def run_cover(source: str, voice: str, **options) -> Path:
+    def run_cover(source: str, voice: str, *, log, **options) -> Path:
         calls["run_cover"].append((source, voice, options))
         cover = tmp_path / "engine" / f"Track ({voice} Ver).mp3"
         cover.parent.mkdir(parents=True, exist_ok=True)
@@ -56,7 +56,9 @@ def fake_engine(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> dict:
 
     monkeypatch.setattr(engine, "prepare", lambda paths=None: paths)
     monkeypatch.setattr(engine, "ensure_base_models", lambda **_k: None)
-    monkeypatch.setattr(engine, "ensure_separators", lambda **_k: None)
+    monkeypatch.setattr(
+        engine, "ensure_separators", lambda quality, log: calls["separators"].append(quality)
+    )
     monkeypatch.setattr(engine, "device_summary", lambda: "CPU (test)")
     monkeypatch.setattr(engine, "run_cover", run_cover)
     return calls
@@ -76,8 +78,41 @@ def test_convert_song_copies_the_cover_into_outputs(
     assert result == paths.outputs / "Track (singer Ver).mp3"
     assert result.read_bytes() == b"mixed-song"
     assert fake_engine["run_cover"] == [
-        (str(song.resolve()), "singer", {"octaves": -1, "output_format": "mp3"})
+        (
+            str(song.resolve()),
+            "singer",
+            {"quality": "high", "octaves": -1, "output_format": "mp3"},
+        )
     ]
+    assert fake_engine["separators"] == ["high"]
+
+
+def test_convert_song_uses_the_requested_quality(
+    paths, model_files, fake_engine, tmp_path: Path
+) -> None:
+    voices.add_voice(paths, "singer", list(model_files))
+    song = tmp_path / "track.wav"
+    song.write_bytes(b"audio")
+
+    convert.convert_song(str(song), "singer", paths=paths, quality="standard", log=lambda _m: None)
+
+    # The same quality must reach both the model download and the pipeline;
+    # otherwise the pipeline would stall downloading a model mid-conversion.
+    assert fake_engine["separators"] == ["standard"]
+    assert fake_engine["run_cover"][0][2] == {"quality": "standard"}
+
+
+def test_convert_song_rejects_an_unknown_quality_before_heavy_work(
+    paths, model_files, fake_engine, tmp_path: Path
+) -> None:
+    voices.add_voice(paths, "singer", list(model_files))
+    song = tmp_path / "track.wav"
+    song.write_bytes(b"audio")
+
+    with pytest.raises(engine.EngineError, match="Unknown quality 'ultra'"):
+        convert.convert_song(str(song), "singer", paths=paths, quality="ultra", log=lambda _m: None)
+
+    assert fake_engine["separators"] == [] and fake_engine["run_cover"] == []
 
 
 def test_convert_song_keeps_earlier_results(

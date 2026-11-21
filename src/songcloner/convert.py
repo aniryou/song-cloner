@@ -45,22 +45,25 @@ def convert_song(
     voice: str,
     *,
     paths: Paths,
+    quality: str = engine.DEFAULT_QUALITY,
     output_dir: Path | None = None,
     log: Callable[[str], None] = print,
     **options: Any,
 ) -> Path:
     """Convert ``source`` (file or YouTube URL) to ``voice``; return the finished song.
 
-    ``options`` are passed to :func:`songcloner.engine.run_cover`.
+    ``quality`` picks the vocal separator ("high" or "standard"). ``options``
+    are passed to :func:`songcloner.engine.run_cover`.
     """
     voices.get_voice(paths, voice)  # fail before any heavy work
+    engine.vocal_separator(quality)
     resolved = resolve_source(source)
     engine.prepare(paths)
     engine.ensure_base_models(log=log)
-    engine.ensure_separators(log=log)
+    engine.ensure_separators(quality, log=log)
 
     log(f"Converting with voice {voice!r} on {engine.device_summary()}...")
-    cover = engine.run_cover(resolved, voice, **options)
+    cover = engine.run_cover(resolved, voice, quality=quality, log=log, **options)
 
     destination_dir = output_dir or paths.outputs
     destination_dir.mkdir(parents=True, exist_ok=True)

@@ -42,6 +42,7 @@ def train(
     batch_size: int = 8,
     sample_rate: int = 40000,
     isolate_vocals: bool = False,
+    quality: str = engine.DEFAULT_QUALITY,
     save_interval: int = 10,
     detect_overtraining: bool = True,
     force: bool = False,
@@ -51,9 +52,12 @@ def train(
 
     Recordings should be clean solo vocals of one singer. Pass
     ``isolate_vocals=True`` when they are full songs: instruments, backing
-    vocals and reverb are then stripped first.
+    vocals and reverb are then stripped first, with the vocal separator that
+    ``quality`` selects. (``songcloner dataset`` does the same as a separate
+    step and lets you review the result before training.)
     """
     voices.validate_name(name)
+    engine.vocal_separator(quality)
     if sample_rate not in SAMPLE_RATES:
         raise TrainingError(f"Sample rate must be one of {SAMPLE_RATES}, got {sample_rate}.")
     if epochs < 1 or batch_size < 1:
@@ -66,12 +70,12 @@ def train(
     engine.prepare(paths)
     engine.ensure_base_models(training_sample_rate=sample_rate, log=log)
     if isolate_vocals:
-        engine.ensure_separators(log=log)
+        engine.ensure_separators(quality, log=log)
         isolated = []
         for number, recording in enumerate(recordings, start=1):
             log(f"Isolating lead vocal {number}/{len(recordings)}: {recording.name}")
-            work_dir = paths.temp / "isolate" / name / f"{number:03d}"
-            isolated.append(engine.isolate_lead_vocal(recording, work_dir))
+            lead, _title = engine.isolate_lead_vocal(str(recording), quality, log)
+            isolated.append(lead)
         recordings = isolated
 
     # Move an existing voice aside rather than deleting it, so a failed

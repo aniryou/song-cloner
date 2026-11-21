@@ -8,7 +8,7 @@ published or shared.
 
 1. Check the machine: `uv run songcloner doctor`. If the engine is not ready, run
    `bash scripts/setup.sh` (idempotent; installs sox/ffmpeg, the Python environment and about
-   1 GB of base models).
+   1.5 GB of base models).
 2. Check the voice: `uv run songcloner voices list`. A fresh cloud machine has none. Fetch it with
    `uv run songcloner voices pull <name> --repo <user>/<repo>` (the owner's private Hugging Face
    repo; `SONGCLONER_HF_REPO` may hold the default). If huggingface.co answers 401/403, the
@@ -17,8 +17,8 @@ published or shared.
    media hosts `*.googlevideo.com` on the environment's allowed hosts; if the download is
    refused, ask the owner for the audio file instead of looking for another route.
 4. Convert: `uv run songcloner convert <file-or-url> --voice <name>`. On a 4-core CPU this
-   takes about 7 times the song's length (27 minutes for a 4-minute song), so run it in the
-   background and tell the owner how long to expect.
+   takes about 10 times the song's length (about 7 times with `--quality standard`), so run
+   it in the background and tell the owner how long to expect.
 5. Send the owner the file written to `outputs/`.
 
 Pitch: the converted vocal keeps the original singer's notes. When the original is sung by a
@@ -44,8 +44,11 @@ woman and the voice is a man's (or the reverse), add `--octaves -1` (or `1`), or
 - `src/songcloner/engine.py` is the only module that imports the engine (`ultimate-rvc`,
   pinned in `pyproject.toml`). All of its engine imports are lazy and run after `prepare()`,
   because the engine reads its directories from the environment at import time.
-- `voices.py` (local registry and private Hugging Face sync), `convert.py`, `training.py`
-  hold the logic; `cli.py` only parses arguments and prints.
+- `voices.py` (local registry and private Hugging Face sync), `convert.py`, `dataset.py`,
+  `training.py` hold the logic; `cli.py` only parses arguments and prints.
+- `engine.run_cover` composes the engine's own steps (separate, convert, mix) instead of
+  calling its `run_pipeline`, so that the vocal separator can be chosen (`--quality`). The
+  choice was measured on a track with ground-truth stems; re-measure before changing it.
 - `paths.py`: engine data lives in `./data` (`SONGCLONER_HOME`), results in `./outputs`
   (`SONGCLONER_OUTPUTS`).
 

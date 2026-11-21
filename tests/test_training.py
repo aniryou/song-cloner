@@ -43,17 +43,24 @@ def test_find_recordings_errors(tmp_path: Path) -> None:
 @pytest.fixture
 def fake_engine(monkeypatch: pytest.MonkeyPatch, paths) -> dict:
     """An engine stub whose training 'succeeds' by writing a model file."""
-    calls: dict = {"base_models": [], "separators": 0, "isolated": [], "trained": [], "fail": False}
+    calls: dict = {
+        "base_models": [],
+        "separators": [],
+        "isolated": [],
+        "trained": [],
+        "fail": False,
+    }
 
     def ensure_base_models(*, training_sample_rate=None, log=print) -> None:
         calls["base_models"].append(training_sample_rate)
 
-    def ensure_separators(*, log=print) -> None:
-        calls["separators"] += 1
+    def ensure_separators(quality, log=print) -> None:
+        calls["separators"].append(quality)
 
-    def isolate_lead_vocal(audio_file: Path, work_dir: Path) -> Path:
-        calls["isolated"].append(audio_file.name)
-        return work_dir / f"{audio_file.stem}_lead.wav"
+    def isolate_lead_vocal(source: str, quality: str, log) -> tuple[Path, str]:
+        calls["isolated"].append((Path(source).name, quality))
+        stem = Path(source).stem
+        return paths.temp / f"{stem}_lead.wav", stem
 
     def train_voice(name: str, audio_files, **options) -> None:
         calls["trained"].append((name, [Path(p).name for p in audio_files], options))
@@ -86,7 +93,7 @@ def test_train_passes_recordings_and_settings_to_the_engine(
 
     assert voice.model.read_bytes() == b"freshly-trained"
     assert fake_engine["base_models"] == [48000]
-    assert fake_engine["separators"] == 0 and fake_engine["isolated"] == []
+    assert fake_engine["separators"] == [] and fake_engine["isolated"] == []
     name, files, options = fake_engine["trained"][0]
     assert name == "singer"
     assert files == ["a.MP3", "c.flac", "b.wav"]
@@ -97,11 +104,20 @@ def test_train_passes_recordings_and_settings_to_the_engine(
 
 def test_train_isolates_vocals_first_when_asked(paths, fake_engine, tmp_path: Path) -> None:
     training.train(
-        "singer", _dataset(tmp_path), paths=paths, isolate_vocals=True, log=lambda _m: None
+        "singer",
+        _dataset(tmp_path),
+        paths=paths,
+        isolate_vocals=True,
+        quality="standard",
+        log=lambda _m: None,
     )
 
-    assert fake_engine["separators"] == 1
-    assert fake_engine["isolated"] == ["a.MP3", "c.flac", "b.wav"]
+    assert fake_engine["separators"] == ["standard"]
+    assert fake_engine["isolated"] == [
+        ("a.MP3", "standard"),
+        ("c.flac", "standard"),
+        ("b.wav", "standard"),
+    ]
     _, files, _ = fake_engine["trained"][0]
     assert files == ["a_lead.wav", "c_lead.wav", "b_lead.wav"]
 
@@ -110,6 +126,7 @@ def test_train_isolates_vocals_first_when_asked(paths, fake_engine, tmp_path: Pa
     ("kwargs", "message"),
     [
         ({"sample_rate": 44100}, "Sample rate must be one of"),
+        ({"quality": "ultra"}, "Unknown quality"),
         ({"epochs": 0}, "at least 1"),
         ({"batch_size": 0}, "at least 1"),
     ],
@@ -117,7 +134,7 @@ def test_train_isolates_vocals_first_when_asked(paths, fake_engine, tmp_path: Pa
 def test_train_rejects_bad_settings(
     paths, fake_engine, tmp_path: Path, kwargs: dict, message: str
 ) -> None:
-    with pytest.raises(TrainingError, match=message):
+    with pytest.raises((TrainingError, engine.EngineError), match=message):
         training.train("singer", _dataset(tmp_path), paths=paths, log=lambda _m: None, **kwargs)
     assert fake_engine["trained"] == []
 
